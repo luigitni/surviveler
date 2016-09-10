@@ -20,5 +20,6 @@ local/
 pip-selfcheck.json
 pkg/
 .Python
-data/
 data
+wiki
+.vscode

@@ -113,7 +113,7 @@ type Barricade struct {
  */
 func NewBarricade(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 	return &MgTurret{
-		BuildingBase{
+		BuildingBase: BuildingBase{
 			id:           InvalidID,
 			g:            g,
 			pos:          pos,
@@ -123,6 +123,7 @@ func NewBarricade(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 			curBP:        0,
 			buildingType: BarricadeBuilding,
 		},
+		attackPower: 10.0,
 	}
 }
 
@@ -155,14 +156,30 @@ func (mg *Barricade) IsBuilt() bool {
  */
 type MgTurret struct {
 	BuildingBase
+	attackPower float64
+	lastBurst time.Duration
+	lastLock time.Duration
+	lastValidTarget time.Duration
+	target Entity
 }
+
+const (
+	//Maximum distance at which the turret can acquire a target
+	MgTurretMaxTargetAcquiringDist float32 = 10.0;
+	//Rate at which the turret attempts to acquire a target
+	MgTurretAcquiringTargetRate time.Duration = 500 * time.Millisecond
+	//time interval between a burst and the next
+	MgTurretRateOfFire time.Duration = 250 * time.Millisecond;
+
+	MgTurretLostTarget time.Duration = 500 * time.Millisecond;
+)
 
 /*
  * NewMgTurret creates a new machine-gun turret
  */
 func NewMgTurret(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 	return &MgTurret{
-		BuildingBase{
+		BuildingBase: BuildingBase{
 			id:           InvalidID,
 			g:            g,
 			pos:          pos,
@@ -172,10 +189,74 @@ func NewMgTurret(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 			curBP:        0,
 			buildingType: MgTurretBuilding,
 		},
+		attackPower: 10.0,
 	}
 }
 
 func (mg *MgTurret) Update(dt time.Duration) {
+	mg.lastBurst += dt;
+	mg.lastLock += dt;
+
+	if mg.lastValidTarget > MgTurretLostTarget {
+		mg.lastValidTarget = 0;
+		mg.target = nil;
+		return;
+	}
+	//if we acquired a target, shot him!
+	if mg.target != nil {
+		//check if the target is within distance
+		if float32(mg.pos.SquareEuclideanDistance(mg.target.Position())) > MgTurretMaxTargetAcquiringDist * MgTurretMaxTargetAcquiringDist {
+			//target is too far, can't do shit
+			mg.lastValidTarget += dt;
+			return;
+		}
+
+		ray := CastRay(mg.g.State().World(), mg.pos, mg.target.Position().Sub(mg.pos), MgTurretMaxTargetAcquiringDist);
+		if ray.IsColliding {
+			tile := mg.g.State().World().TileFromVec(ray.CollidingPos);
+			if !tile.Entities.Contains(mg.target) {
+				//we collided with something else. can't do shit
+				mg.lastValidTarget += dt;
+				return
+			}
+
+			//we collide with the target and the target is in distance.
+			//we can shoot!
+			if mg.lastBurst >= MgTurretRateOfFire {
+				mg.shoot(dt);
+			}
+		}
+	}
+
+	if mg.target == nil && mg.lastLock >= MgTurretAcquiringTargetRate {
+		mg.acquireTarget();
+	}
+}
+
+func (mg *MgTurret) shoot(dt time.Duration) {
+	//check if the target is in line of sight
+	if mg.target.DealDamage(mg.attackPower) {
+		//we killed a zombie! clean the target
+		mg.target = nil;
+	}
+	mg.lastBurst = 0;
+}
+
+func (mg *MgTurret) acquireTarget() {
+	//get the nearest zombie
+	if e, d := mg.g.State().NearestEntity(mg.pos, func(e Entity) bool {
+		return e.Type() == ZombieEntity;
+	}); d <= MgTurretMaxTargetAcquiringDist && e != nil {
+		log.WithField("distance from target is", d).Infof("Turrret is acquiring target: %d", e.Id());
+		//check if the target is in los. If it is the target is locked
+		ray := CastRay(mg.g.State().World(), mg.pos, e.Position().Sub(mg.pos), d);
+		if ray.IsColliding {
+			mg.target = e;
+			log.WithField("Target", e).Infof("Turrret acquired target.");
+			mg.lastLock = 0;
+		}
+	}
+
 }
 
 /*

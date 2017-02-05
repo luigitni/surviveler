@@ -172,6 +172,10 @@ func (v Vec2) MarshalText() (text []byte, err error) {
 	return []byte(v.String()), nil
 }
 
+func (v Vec2) SquareEuclideanDistance(t Vec2) float64 {
+	return (v.X() - t.X()) * (v.X() - t.X()) + (v.Y() - t.Y()) * (v.Y() - t.Y());
+}
+
 // Does the vector outer product
 // of two vectors. The outer product produces an
 // 2x2 matrix. E.G. a Vec2 * Vec2 = Mat2.

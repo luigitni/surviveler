@@ -276,3 +276,18 @@ func (w *World) EntitySpatialQuery(ent Entity) *EntitySet {
 	set.Remove(ent)
 	return set
 }
+
+//Returns true if for a given position the corresponding tile is traversable
+//i.e. is not occupied by another entity or prop
+//Vec is in grid coordinates
+func (w *World) IsPointTraversable(point math.Vec2) bool {
+	tile := w.TileFromVec(point);
+
+	//we assume huge, unpenetrable walls outside of the grid
+	if tile == nil {
+		return false;
+	}
+
+	return tile.Kind != KindNotWalkable && tile.Kind != KindTurret && tile.Entities.Len() == 0;
+
+}

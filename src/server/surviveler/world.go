@@ -288,6 +288,67 @@ func (w *World) IsPointTraversable(point math.Vec2) bool {
 		return false;
 	}
 
-	return tile.Kind != KindNotWalkable && tile.Kind != KindTurret && tile.Entities.Len() == 0;
+	log.WithFields(log.Fields{"X": tile.X, "Y": tile.Y, "Kind": tile.Kind}).Info("Checking traversability of tile")
+	return tile.IsWalkable() && tile.Kind != KindTurret && tile.Entities.Len() == 0;
 
+}
+
+type RayCastResult struct {
+	IsColliding bool
+	CollidingPos math.Vec2
+}
+
+func (w *World) CastRay(origin math.Vec2, dir math.Vec2, length float32) RayCastResult {
+
+	result := RayCastResult{IsColliding:false}
+
+	if int(length) == 0 {
+		result.CollidingPos = origin;
+	}
+
+	normDir := dir.Normalize();
+
+	line := math.BresenhamLine(origin,
+		origin.Add(
+			math.Vec2{normDir.X() * float64(length), normDir.Y() * float64(length)},
+		),
+	);
+
+	l := len(line);
+
+	if l > 0 {
+		idx := 0;
+
+		excludesOrigin := math.FromInts(int(origin.X()), int(origin.Y())) != line[0];
+
+		if excludesOrigin {
+			idx = l - 1;
+		}
+
+		log.WithField("Length of line is", l).Infof("Ray casting");
+		for ;; {
+			log.WithField("Checking index", idx).Infof("Ray casting");
+			point := line[idx];
+			if !w.IsPointTraversable(point) {
+				result.IsColliding = true;
+				result.CollidingPos = point;
+				log.WithField("CollidingPos", point).Infof("Ray is colliding");
+				break;
+			}
+
+			if excludesOrigin {
+				idx--;
+				if idx < 0 {
+					break;
+				}
+			} else {
+				idx++;
+				if idx >= l {
+					break;
+				}
+			}
+		}
+	}
+
+	return result;
 }

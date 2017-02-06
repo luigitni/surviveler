@@ -165,7 +165,7 @@ type MgTurret struct {
 
 const (
 	//Maximum distance at which the turret can acquire a target
-	MgTurretMaxTargetAcquiringDist float32 = 10.0;
+	MgTurretMaxTargetAcquiringDist float32 = 3.0;
 	//Rate at which the turret attempts to acquire a target
 	MgTurretAcquiringTargetRate time.Duration = 500 * time.Millisecond
 	//time interval between a burst and the next
@@ -189,7 +189,7 @@ func NewMgTurret(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 			curBP:        0,
 			buildingType: MgTurretBuilding,
 		},
-		attackPower: 10.0,
+		attackPower: 0.2,
 	}
 }
 
@@ -211,21 +211,17 @@ func (mg *MgTurret) Update(dt time.Duration) {
 			return;
 		}
 
-		ray := CastRay(mg.g.State().World(), mg.pos, mg.target.Position().Sub(mg.pos), MgTurretMaxTargetAcquiringDist);
-		if ray.IsColliding {
-			tile := mg.g.State().World().TileFromVec(ray.CollidingPos);
-			if !tile.Entities.Contains(mg.target) {
-				//we collided with something else. can't do shit
-				mg.lastValidTarget += dt;
-				return
-			}
-
-			//we collide with the target and the target is in distance.
-			//we can shoot!
+		ray := mg.g.State().World().CastRay(mg.pos, mg.target.Position().Sub(mg.pos), MgTurretMaxTargetAcquiringDist);
+		if !ray.IsColliding {
+			//target in los, we can shoot!
 			if mg.lastBurst >= MgTurretRateOfFire {
 				mg.shoot(dt);
+				return;
 			}
 		}
+		//target is out of los, can't do shit
+		mg.lastValidTarget += dt;
+		return;
 	}
 
 	if mg.target == nil && mg.lastLock >= MgTurretAcquiringTargetRate {
@@ -244,15 +240,16 @@ func (mg *MgTurret) shoot(dt time.Duration) {
 
 func (mg *MgTurret) acquireTarget() {
 	//get the nearest zombie
+	world := mg.g.State().World();
 	if e, d := mg.g.State().NearestEntity(mg.pos, func(e Entity) bool {
 		return e.Type() == ZombieEntity;
 	}); d <= MgTurretMaxTargetAcquiringDist && e != nil {
 		log.WithField("distance from target is", d).Infof("Turrret is acquiring target: %d", e.Id());
 		//check if the target is in los. If it is the target is locked
-		ray := CastRay(mg.g.State().World(), mg.pos, e.Position().Sub(mg.pos), d);
-		if ray.IsColliding {
-			mg.target = e;
+		ray := world.CastRay(mg.pos, e.Position().Sub(mg.pos), d);
+		if !ray.IsColliding {
 			log.WithField("Target", e).Infof("Turrret acquired target.");
+			mg.target = e;
 			mg.lastLock = 0;
 		}
 	}

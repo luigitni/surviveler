@@ -32,7 +32,7 @@ func BresenhamLine(v0 Vec2, v1 Vec2) []Vec2 {
 	}
 
 	//Note: compute the slice size so that we avoid calling append
-	line := make([]Vec2, x1 - x0, x1 -x0)
+	line := make([]Vec2, x1 - x0 + 1, x1 -x0 + 1)
 
 	deltaX := x1 - x0;
 	deltaY := int(math.Abs(float64(y1) -float64(y0)));

@@ -288,9 +288,8 @@ func (w *World) IsPointTraversable(point math.Vec2) bool {
 		return false;
 	}
 
-
+	//todo: define what is traversable
 	traversable := tile.Kind != KindNotWalkable;
-	log.WithFields(log.Fields{"X": tile.X, "Y": tile.Y, "Kind": tile.Kind, "traversable": traversable}).Info("Checking traversability of tile")
 	return traversable;
 
 }

@@ -125,8 +125,9 @@ func (z *Zombie) attack(dt time.Duration) (state int) {
 
 	if z.timeAcc >= zombieDamageInterval {
 		z.timeAcc -= zombieDamageInterval
-		//if z.target.DealDamage(float64(z.combatPower)) {
-		if z.target.DealDamage(0.0) {
+		if z.target.DealDamage(float64(z.combatPower)) {
+		//I am a cheater!
+		//if z.target.DealDamage(0.0) {
 			state = lookingState
 		}
 	}

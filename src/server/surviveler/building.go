@@ -156,12 +156,19 @@ func (mg *Barricade) IsBuilt() bool {
  */
 type MgTurret struct {
 	BuildingBase
+	curState TurretState
 	attackPower float64
-	lastBurst time.Duration
-	lastLock time.Duration
-	lastValidTarget time.Duration
+	lastAction time.Duration
 	target Entity
 }
+
+type TurretState int;
+
+const (
+	Guarding TurretState = iota
+	TargetAcquired
+	Attacking
+)
 
 const (
 	//Maximum distance at which the turret can acquire a target
@@ -190,77 +197,75 @@ func NewMgTurret(g *Game, pos math.Vec2, totHP, reqBP uint16) *MgTurret {
 			buildingType: MgTurretBuilding,
 		},
 		attackPower: 0.2,
+		curState: Guarding,
 	}
 }
 
 func (mg *MgTurret) Update(dt time.Duration) {
-	mg.lastBurst += dt;
-	mg.lastLock += dt;
+	mg.lastAction += dt;
 
-	//We have a target but we can't fire (out of los or too far)
-	if mg.lastValidTarget >= MgTurretLostTarget {
-		mg.lastValidTarget = 0;
-		mg.target = nil;
-		return;
-	}
-
-	//if we don't have a target we try to find one
-	if mg.target == nil && mg.lastLock >= MgTurretAcquiringTargetRate {
-		mg.acquireTarget();
-		return;
-	}
-
-	//we have a target, we must see if we can shoot him
-	if mg.target != nil {
-		//check if the target is within distance
-		if float32(mg.pos.SquareEuclideanDistance(mg.target.Position())) > MgTurretMaxDist * MgTurretMaxDist {
-			//target is too far, can't do shit
-			log.WithField("TargetPos", mg.target.Position()).Infof("Target too far!");
-			mg.lastValidTarget += dt;
-			return;
-		}
-
-
-		ray := mg.g.State().World().LineThrough(mg.pos, mg.target.Position());
-		if !ray.IsColliding {
-			//target in los, we can shoot!
-			if mg.lastBurst >= MgTurretRateOfFire {
-				mg.shoot(dt);
+	switch mg.curState {
+		//"idle" state. We have no target. We look for a target after a short interval
+		case Guarding:
+			if mg.lastAction >= MgTurretAcquiringTargetRate {
+				if mg.acquireTarget() {
+					log.WithFields(log.Fields{"Target": mg.target.Id(), "Position": mg.target.Position()}).Infof("Turrret acquired target.");
+					mg.curState = Attacking;
+				}
+				mg.lastAction = 0;
+			}
+		//We have a target but we are not shooting.
+		//If we stay too long in this state we must look for another target
+		case TargetAcquired:
+			if mg.lastAction >= MgTurretLostTarget {
+				//we couldn't shot for more than X ms,
+				//try to get another target
+				mg.target = nil;
+				mg.curState = Guarding;
+			}
+		case Attacking:
+			//check if the target is within distance
+			if float32(mg.pos.SquareEuclideanDistance(mg.target.Position())) > MgTurretMaxDist * MgTurretMaxDist {
+				//target is too far, can't do shit
+				mg.curState = TargetAcquired;
+				log.WithFields(log.Fields{"TargetPos": mg.target.Position(), "TurretPos": mg.pos}).Infof("Target too far!");
 				return;
 			}
-		} else {
-			log.WithField("TargetPos", mg.target.Position()).Infof("Target not in los!");
-			//target is out of los, can't do shit
-			mg.lastValidTarget += dt;
-			return;
-		}
+
+			//check if there's an untraversable tile between us and the target
+			ray := mg.g.State().World().LineThrough(mg.pos, mg.target.Position());
+			//todo: ask Aurelien how to determine if two entities are in the same tile
+			if ray.IsColliding && !ray.CollidingPos.IntEqual(mg.pos) {
+				mg.curState = TargetAcquired
+				log.WithField("CollidingPos", ray.CollidingPos).Infof("Target out of LOS!");
+				return;
+			}
+
+			//target in los, we can shoot!
+			if mg.lastAction >= MgTurretRateOfFire {
+				log.WithField("TargetPos", mg.target.Position()).Infof("Turrret is shooting");
+				if mg.target.DealDamage(mg.attackPower) {
+					//if we kill the zombie we go back to guarding state
+					mg.target = nil;
+					mg.curState = Guarding;
+				}
+				mg.lastAction = 0;
+				return;
+			}
 	}
 }
 
-func (mg *MgTurret) shoot(dt time.Duration) {
-	log.WithField("TargetPos", mg.target.Position()).Infof("Turrret is shooting");
-	//check if the target is in line of sight
-	if mg.target.DealDamage(mg.attackPower) {
-		//we killed a zombie! clean the target
-		mg.target = nil;
-	}
-	mg.lastBurst = 0;
-}
-
-func (mg *MgTurret) acquireTarget() {
-	//get the nearest zombie
-	world := mg.g.State().World();
+//checks for the closest zombie. If it is in los
+func (mg *MgTurret) acquireTarget() bool {
+	//check if the nearest entity is a zombie
 	if e, d := mg.g.State().NearestEntity(mg.pos, func(e Entity) bool {
-		return e.Type() == ZombieEntity;
+		return e.Type() == ZombieEntity && mg.target != e;
 	}); d <= MgTurretMaxDist && e != nil {
-		//check if the target is in los. If it is the target is locked
-		ray := world.CastRay(mg.pos, e.Position().Sub(mg.pos), d);
-		if !ray.IsColliding {
-			log.WithFields(log.Fields{"Target": e.Id(), "Position": e.Position()}).Infof("Turrret acquired target.");
-			mg.target = e;
-			mg.lastLock = 0;
-		}
+		mg.target = e;
+		return true;
 	}
+
+	return false;
 }
 
 /*

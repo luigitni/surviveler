@@ -176,6 +176,11 @@ func (v Vec2) SquareEuclideanDistance(t Vec2) float64 {
 	return (v.X() - t.X()) * (v.X() - t.X()) + (v.Y() - t.Y()) * (v.Y() - t.Y());
 }
 
+//returns true if int(v) == int(t)
+func (v Vec2) IntEqual(t Vec2) bool {
+	return int(v.X()) == int(t.X()) && int(v.Y()) == int(t.Y());
+}
+
 // Does the vector outer product
 // of two vectors. The outer product produces an
 // 2x2 matrix. E.G. a Vec2 * Vec2 = Mat2.

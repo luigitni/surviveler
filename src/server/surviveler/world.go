@@ -288,8 +288,10 @@ func (w *World) IsPointTraversable(point math.Vec2) bool {
 		return false;
 	}
 
-	log.WithFields(log.Fields{"X": tile.X, "Y": tile.Y, "Kind": tile.Kind}).Info("Checking traversability of tile")
-	return tile.IsWalkable() && tile.Kind != KindTurret && tile.Entities.Len() == 0;
+
+	traversable := tile.Kind != KindNotWalkable;
+	log.WithFields(log.Fields{"X": tile.X, "Y": tile.Y, "Kind": tile.Kind, "traversable": traversable}).Info("Checking traversability of tile")
+	return traversable;
 
 }
 
@@ -298,45 +300,40 @@ type RayCastResult struct {
 	CollidingPos math.Vec2
 }
 
-func (w *World) CastRay(origin math.Vec2, dir math.Vec2, length float32) RayCastResult {
+//Determines whether a given point on the grid that satisfies pointFilter intersects a line from start to end.
+//The line is determined using the Bresenham algotrithm.
+//The filter is checked sequentially, from start to end. If it is satisfied the function returns.
+func (w *World) lineCollision(start math.Vec2, end math.Vec2, pointFilter func(point math.Vec2) bool) RayCastResult {
+	result := RayCastResult{};
 
-	result := RayCastResult{IsColliding:false}
-
-	if int(length) == 0 {
-		result.CollidingPos = origin;
-	}
-
-	normDir := dir.Normalize();
-
-	line := math.BresenhamLine(origin,
-		origin.Add(
-			math.Vec2{normDir.X() * float64(length), normDir.Y() * float64(length)},
-		),
-	);
+	//we use Bresenham algorithm to "draw" a line from origin to origin + dir*length
+	line := math.BresenhamLine(start,	end);
 
 	l := len(line);
 
 	if l > 0 {
 		idx := 0;
 
-		excludesOrigin := math.FromInts(int(origin.X()), int(origin.Y())) != line[0];
+		//Bresenham can revert the line points. We cheaply check if that's the case.
+		//If the line is "reversed" we start from the last point
+		reverse := math.FromInts(int(start.X()), int(start.Y())) != line[0];
 
-		if excludesOrigin {
+		if reverse {
 			idx = l - 1;
 		}
 
-		log.WithField("Length of line is", l).Infof("Ray casting");
 		for ;; {
-			log.WithField("Checking index", idx).Infof("Ray casting");
 			point := line[idx];
-			if !w.IsPointTraversable(point) {
+			//if the point is not traversable we have a collision
+			//we can return the point
+			if !pointFilter(point) {
 				result.IsColliding = true;
 				result.CollidingPos = point;
 				log.WithField("CollidingPos", point).Infof("Ray is colliding");
 				break;
 			}
 
-			if excludesOrigin {
+			if reverse {
 				idx--;
 				if idx < 0 {
 					break;
@@ -351,4 +348,41 @@ func (w *World) CastRay(origin math.Vec2, dir math.Vec2, length float32) RayCast
 	}
 
 	return result;
+}
+
+//Determines if a line from start to end intersects an untraversable grid point.
+//Possible intersections are computed serially, from start to end
+func (w *World) LineThrough(start math.Vec2, end math.Vec2) RayCastResult {
+	result := RayCastResult{}
+
+	diff := start.Sub(end);
+
+	if int(diff.X()) == 0 && int(diff.Y()) == 0 {
+		result.IsColliding = true;
+		result.CollidingPos = start;
+		return result;
+	}
+
+	return w.lineCollision(start, end, w.IsPointTraversable);
+}
+
+//Determines if a ray intersects an untraversable grid point.
+//The ray starts at origin, follows the direction dir and is of length length
+//Possible intersections are computed serially, from start to end
+func (w *World) CastRay(origin math.Vec2, dir math.Vec2, length float32) RayCastResult {
+
+	result := RayCastResult{}
+
+	if int(length) == 0 {
+		result.IsColliding = true;
+		result.CollidingPos = origin;
+		return result;
+	}
+
+	normDir := dir.Normalize();
+	target := origin.Add(math.Vec2{normDir.X() * float64(length), normDir.Y() * float64(length)});
+
+	//log.WithFields(log.Fields{"X0":origin.X(), "Y0": origin.Y(), "X1": target.X(), "Y1": target.Y()}).Infof("Ray casting");
+
+	return w.lineCollision(origin, target, w.IsPointTraversable);
 }
